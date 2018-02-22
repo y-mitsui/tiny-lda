@@ -3,6 +3,7 @@ from scipy.special import digamma
 import numpy as np
 from gensim import corpora, models, similarities
 import sys
+import MySQLdb
 
 class LDA:
     def __init__(self, n_topic, n_iter, alpha=0.1, beta=0.01, n_batch=10, step_size=0.01):
@@ -35,9 +36,9 @@ class LDA:
                 
         n_word_types = max_index + 1
         
-        theta = np.random.uniform(size=(n_documents, self.n_topic))
+        theta = np.random.uniform(size=(n_documents, self.n_topic)) * 10
         old_theta = np.copy(theta)
-        phi = np.random.uniform(size=(self.n_topic, n_word_types))
+        phi = np.random.uniform(size=(self.n_topic, n_word_types)) * 10
         latent_z = []
         for i in range(n_documents):
             latent_z.append(np.zeros((len(word_indexes[i]), self.n_topic)))
@@ -59,6 +60,7 @@ class LDA:
                         prob_d = diga_theta[k]
                         latent_z[d][w][k] = np.exp(prob_w + prob_d)
                         k_sum += latent_z[d][w][k]
+                    print("k_sum", k_sum)
                     latent_z[d][w] /= k_sum
                     
                 for k in range(self.n_topic):
@@ -74,7 +76,7 @@ class LDA:
                         
                         target_word_counts = np.array(word_counts[d])[index[0]]
                         tmp += latent_z[d][index, k] * target_word_counts
-                    difference = (n_documents / n_batch) * tmp + self.beta - phi[k][v]
+                    difference = (n_documents / self.n_batch) * tmp + self.beta - phi[k][v]
                     phi[k][v] += self.step_size *  difference
             print np.max(theta - old_theta)
             old_theta = np.copy(theta)
@@ -92,17 +94,14 @@ class LDA:
         return phi, theta
             
 np.random.seed(12345)
-documents = [
-             "LSI LDA 手軽 試せる gensim 使った 自然 言語 処理 入門",
-             "単語 ベクトル化 する word2vec gensim LDA 使い 指定 二単語間 関連",
-             "word2vec 仕組み gensim 使う 文書 類似 度 算出 チュートリアル",
-             "機械学習 これ 始める 人 押さえる ほしい こと",
-             "初心者 向け 機械学習 ディープラーニング 違い シンプル 解説",
-             "機械学習 データサイエンティスト 機械学習 ディープラーニング エンジニア なる スキル 要件",
-             "セクハラ やじ浴びた 前 都議 民進党 衆院 選 ",
-             "執行部 成立 させる なくなる 民進党 内ゲバ 離党 ドミノ 衆院 選",
-             "前原 代表 選 民進党 再生 できる"
-             ]
+connection = MySQLdb.connect(db="similar_words",user="root",passwd="password")
+connection.set_character_set('utf8')
+cursor = connection.cursor()
+cursor.execute("SELECT search_content FROM documents ORDER BY id LIMIT 10")
+documents = []
+for search_content, in cursor.fetchall():
+    documents.append(search_content)
+
 stoplist = set('for a of the and to in'.split())
 texts = [[word for word in document.lower().split() if word not in stoplist]
             for document in documents]
@@ -110,13 +109,13 @@ all_tokens = sum(texts, [])
 tokens_once = set(word for word in set(all_tokens) if all_tokens.count(word) == 1)
 texts = [[word for word in text if word not in tokens_once]
             for text in texts]
-print texts
+#print texts
 dictionary = corpora.Dictionary(texts)
-print dictionary.token2id
+#print dictionary.token2id
 new_doc = "Human computer interaction"
 corpus = [np.array(dictionary.doc2bow(text)) for text in texts]
 n_topics = 3
-lda = LDA(n_topics, 10)
+lda = LDA(n_topics, 100)
 docs_w = [[1,2],
           [1,2],
           [3,4],
