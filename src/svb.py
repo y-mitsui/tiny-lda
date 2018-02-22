@@ -6,14 +6,27 @@ import sys
 
 class LDA:
 
-    def __init__(self, n_topic, n_iter):
+    def __init__(self, n_topic, n_iter, alpha=0.1, beta=0.01, n_batch=10):
         self.n_topic = n_topic
         self.n_iter = n_iter
-    
-    def fit(self, word_indexes, word_counts):
-        alpha = 0.01
-        beta = 0.01
-        n_documents = len(word_indexes)
+        self.alpha = alpha
+        self.beta = beta
+        self.n_batch = n_batch
+        
+    def fit(self, curpus):
+        word_indexes = []
+        word_counts = []
+        for row_curpus in curpus:
+            row_indexes = []
+            row_counts = []
+            for w_i, w_c in row_curpus:
+                row_indexes.append(w_i)
+                row_counts.append(w_c)
+            word_indexes.append(row_indexes)
+            word_counts.append(row_counts)
+        
+        n_documents = len(word_indexes)    
+        
         max_index = 0
         for d in range(n_documents):
             document_max = np.max(word_indexes[d])
@@ -30,36 +43,38 @@ class LDA:
             latent_z.append(np.zeros((len(word_indexes[i]), self.n_topic)))
             
         for n in range(self.n_iter):
+            random_idx = np.random.randint(0, n_documents, size=self.n_batch)
             sum_phi = []
             for k in range(self.n_topic):
                 sum_phi.append(sum(phi[k]))
             
-            for d in range(n_documents):
-                sum_theta_d = sum(theta[d] + alpha)
-                diga_theta = digamma(theta[d] + alpha) - sum_theta_d
+            for d in random_idx:
+                sum_theta_d = sum(theta[d])
+                diga_theta = digamma(theta[d]) - sum_theta_d
                 for w in range(len(word_indexes[d])):
                     word_no = word_indexes[d][w]
                     k_sum = 0.
                     for k in range(self.n_topic):
-                        prob_w = digamma(phi[k][word_no] + beta) - digamma(sum_phi[k] + beta)
+                        prob_w = digamma(phi[k][word_no]) - digamma(sum_phi[k])
                         prob_d = diga_theta[k]
                         latent_z[d][w][k] = np.exp(prob_w + prob_d)
                         k_sum += latent_z[d][w][k]
                     latent_z[d][w] /= k_sum
                     
                 for k in range(self.n_topic):
-                    theta[d, k] = (latent_z[d][:, k] * word_counts[d]).sum()
+                    theta[d, k] = (latent_z[d][:, k] * word_counts[d]).sum() + self.alpha
             
             for k in range(self.n_topic):
                 for v in range(n_word_types):
                     tmp = 0.
                     for d in range(n_documents):
-                        index = np.array(word_indexes[d]) == v
-                        target_word_counts = np.array(word_counts[d])[index]
-                        if target_word_counts.shape[0] != 0:
-                            tmp += latent_z[d][index, k] * target_word_counts
-                    phi[k][v] = tmp
-            
+                        index = np.where(np.array(word_indexes[d]) == v)[0]
+                        if index.shape[0] == 0:
+                            continue
+                        
+                        target_word_counts = np.array(word_counts[d])[index[0]]
+                        tmp += latent_z[d][index, k] * target_word_counts
+                    phi[k][v] = tmp + self.beta
             print np.max(theta - old_theta)
             old_theta = np.copy(theta)
             #print phi
@@ -98,8 +113,7 @@ print texts
 dictionary = corpora.Dictionary(texts)
 print dictionary.token2id
 new_doc = "Human computer interaction"
-word_indexes = [np.array(dictionary.doc2bow(text))[:, 0] for text in texts]
-word_counts = [np.array(dictionary.doc2bow(text))[:, 1] for text in texts]
+corpus = [np.array(dictionary.doc2bow(text)) for text in texts]
 n_topics = 3
 lda = LDA(n_topics, 10)
 docs_w = [[1,2],
@@ -114,7 +128,7 @@ docs_c = [[2,1],
           [4,2],
           [5],
           [4]]
-phi, theta = lda.fit(word_indexes, word_counts)
+phi, theta = lda.fit(corpus)
 for k in range(n_topics):
     print "topic:", k
     indexes = np.argsort(phi[k])
