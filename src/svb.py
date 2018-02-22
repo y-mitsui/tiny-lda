@@ -5,7 +5,6 @@ from gensim import corpora, models, similarities
 import sys
 
 class LDA:
-
     def __init__(self, n_topic, n_iter, alpha=0.1, beta=0.01, n_batch=10, step_size=0.01):
         self.n_topic = n_topic
         self.n_iter = n_iter
