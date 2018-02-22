@@ -6,12 +6,13 @@ import sys
 
 class LDA:
 
-    def __init__(self, n_topic, n_iter, alpha=0.1, beta=0.01, n_batch=10):
+    def __init__(self, n_topic, n_iter, alpha=0.1, beta=0.01, n_batch=10, step_size=0.01):
         self.n_topic = n_topic
         self.n_iter = n_iter
         self.alpha = alpha
         self.beta = beta
         self.n_batch = n_batch
+        self.step_size = step_size
         
     def fit(self, curpus):
         word_indexes = []
@@ -67,14 +68,15 @@ class LDA:
             for k in range(self.n_topic):
                 for v in range(n_word_types):
                     tmp = 0.
-                    for d in range(n_documents):
+                    for d in random_idx:
                         index = np.where(np.array(word_indexes[d]) == v)[0]
                         if index.shape[0] == 0:
                             continue
                         
                         target_word_counts = np.array(word_counts[d])[index[0]]
                         tmp += latent_z[d][index, k] * target_word_counts
-                    phi[k][v] = tmp + self.beta
+                    difference = (n_documents / n_batch) * tmp + self.beta - phi[k][v]
+                    phi[k][v] += self.step_size *  difference
             print np.max(theta - old_theta)
             old_theta = np.copy(theta)
             #print phi
