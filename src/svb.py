@@ -36,15 +36,34 @@ class LDA:
                 
         n_word_types = max_index + 1
         
-        theta = np.random.uniform(size=(n_documents, self.n_topic)) * 10
+        theta = np.random.uniform(size=(n_documents, self.n_topic))
+
         old_theta = np.copy(theta)
-        phi = np.random.uniform(size=(self.n_topic, n_word_types)) * 10
+        phi = np.random.uniform(size=(self.n_topic, n_word_types))
+
         latent_z = []
         for i in range(n_documents):
             latent_z.append(np.zeros((len(word_indexes[i]), self.n_topic)))
             
         for n in range(self.n_iter):
-            random_idx = np.random.randint(0, n_documents, size=self.n_batch)
+            d = np.random.randint(0, n_documents)
+            sum_theta_d = sum(theta[d])
+            diga_theta = digamma(theta[d]) - digamma(sum_theta_d)
+            n_word_in_doc = len(word_indexes[d])
+            theta[d, :] = float(n_word_in_doc) / self.n_topic + self.alpha
+            for n2 in range(self.inner_iter):
+                for w in range(len(word_indexes[d])):
+                    word_no = word_indexes[d][w]
+                    k_sum = 0.
+                    for k in range(self.n_topic):
+                        prob_w = digamma(phi[k][word_no]) - digamma(sum_phi[k])
+                        prob_d = diga_theta[k]
+                        latent_z[d][w][k] = np.exp(prob_w + prob_d)
+                        k_sum += latent_z[d][w][k]
+                    if k_sum == 0.:
+                        sys.exit(0)
+                    latent_z[d][w] /= k_sum
+                    
             sum_phi = []
             for k in range(self.n_topic):
                 sum_phi.append(sum(phi[k]))
@@ -59,13 +78,16 @@ class LDA:
                         prob_w = digamma(phi[k][word_no]) - digamma(sum_phi[k])
                         prob_d = diga_theta[k]
                         latent_z[d][w][k] = np.exp(prob_w + prob_d)
+                        print(phi[k][word_no], sum_phi[k], theta[d], sum_theta_d, prob_w, prob_d)
                         k_sum += latent_z[d][w][k]
+                    if k_sum == 0.:
+                        sys.exit(0)
                     print("k_sum", k_sum)
                     latent_z[d][w] /= k_sum
                     
                 for k in range(self.n_topic):
                     theta[d, k] = (latent_z[d][:, k] * word_counts[d]).sum() + self.alpha
-            
+            sys.exit(0)
             for k in range(self.n_topic):
                 for v in range(n_word_types):
                     tmp = 0.
