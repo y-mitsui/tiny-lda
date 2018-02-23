@@ -1,17 +1,18 @@
 # -*- coding: utf-8 -*-
+from __future__ import print_function
 from scipy.special import digamma
 import numpy as np
 from gensim import corpora, models, similarities
 import sys
-import MySQLdb
+from numpy.random.mtrand import beta
 
 class LDA:
-    def __init__(self, n_topic, n_iter, alpha=0.1, beta=0.01, n_batch=10, step_size=0.01):
+    def __init__(self, n_topic, n_iter, inner_iter=5, alpha=0.1, beta=0.01, step_size=0.1):
         self.n_topic = n_topic
         self.n_iter = n_iter
         self.alpha = alpha
         self.beta = beta
-        self.n_batch = n_batch
+        self.inner_iter = inner_iter
         self.step_size = step_size
         
     def fit(self, curpus):
@@ -37,75 +38,37 @@ class LDA:
         n_word_types = max_index + 1
         
         theta = np.random.uniform(size=(n_documents, self.n_topic))
-
         old_theta = np.copy(theta)
         phi = np.random.uniform(size=(self.n_topic, n_word_types))
-
-        latent_z = []
-        for i in range(n_documents):
-            latent_z.append(np.zeros((len(word_indexes[i]), self.n_topic)))
             
         for n in range(self.n_iter):
             d = np.random.randint(0, n_documents)
-            sum_theta_d = sum(theta[d])
-            diga_theta = digamma(theta[d]) - digamma(sum_theta_d)
             n_word_in_doc = len(word_indexes[d])
-            theta[d, :] = float(n_word_in_doc) / self.n_topic + self.alpha
-            for n2 in range(self.inner_iter):
-                for w in range(len(word_indexes[d])):
-                    word_no = word_indexes[d][w]
-                    k_sum = 0.
-                    for k in range(self.n_topic):
-                        prob_w = digamma(phi[k][word_no]) - digamma(sum_phi[k])
-                        prob_d = diga_theta[k]
-                        latent_z[d][w][k] = np.exp(prob_w + prob_d)
-                        k_sum += latent_z[d][w][k]
-                    if k_sum == 0.:
-                        sys.exit(0)
-                    latent_z[d][w] /= k_sum
-                    
             sum_phi = []
             for k in range(self.n_topic):
                 sum_phi.append(sum(phi[k]))
             
-            for d in random_idx:
+            theta[d, :] = float(n_word_in_doc) / self.n_topic + self.alpha
+            for n2 in range(self.inner_iter):
+                nkv = np.zeros((self.n_topic, n_word_types))
+                ndk = np.zeros(self.n_topic)
                 sum_theta_d = sum(theta[d])
-                diga_theta = digamma(theta[d]) - sum_theta_d
-                for w in range(len(word_indexes[d])):
+                prob_d = digamma(theta[d]) - digamma(sum_theta_d)
+                for w in range(n_word_in_doc):
                     word_no = word_indexes[d][w]
-                    k_sum = 0.
-                    for k in range(self.n_topic):
-                        prob_w = digamma(phi[k][word_no]) - digamma(sum_phi[k])
-                        prob_d = diga_theta[k]
-                        latent_z[d][w][k] = np.exp(prob_w + prob_d)
-                        print(phi[k][word_no], sum_phi[k], theta[d], sum_theta_d, prob_w, prob_d)
-                        k_sum += latent_z[d][w][k]
-                    if k_sum == 0.:
-                        sys.exit(0)
-                    print("k_sum", k_sum)
-                    latent_z[d][w] /= k_sum
+                    prob_w = digamma(phi[:, word_no]) - digamma(sum_phi)
+                    latent_z = np.exp(prob_w + prob_d)
+                    latent_z /= np.sum(latent_z)
                     
-                for k in range(self.n_topic):
-                    theta[d, k] = (latent_z[d][:, k] * word_counts[d]).sum() + self.alpha
-            sys.exit(0)
-            for k in range(self.n_topic):
-                for v in range(n_word_types):
-                    tmp = 0.
-                    for d in random_idx:
-                        index = np.where(np.array(word_indexes[d]) == v)[0]
-                        if index.shape[0] == 0:
-                            continue
-                        
-                        target_word_counts = np.array(word_counts[d])[index[0]]
-                        tmp += latent_z[d][index, k] * target_word_counts
-                    difference = (n_documents / self.n_batch) * tmp + self.beta - phi[k][v]
-                    phi[k][v] += self.step_size *  difference
-            print np.max(theta - old_theta)
+                    ndk += latent_z * word_counts[d][w]
+                    nkv[:, word_no] += latent_z * word_counts[d][w]
+                theta[d] = ndk + self.alpha
+                
+            difference = (n_documents) * nkv + self.beta - phi
+            phi += self.step_size *  difference
+            
+            print(n, np.max(theta - old_theta))
             old_theta = np.copy(theta)
-            #print phi
-            #print theta
-            #print latent_z
-            #exit(1)
         
         for k in range(self.n_topic):
             phi[k] = phi[k] / np.sum(phi[k])
@@ -114,48 +77,35 @@ class LDA:
             theta[d] = theta[d] / np.sum(theta[d])
             
         return phi, theta
-            
-np.random.seed(12345)
-connection = MySQLdb.connect(db="similar_words",user="root",passwd="password")
-connection.set_character_set('utf8')
-cursor = connection.cursor()
-cursor.execute("SELECT search_content FROM documents ORDER BY id LIMIT 10")
-documents = []
-for search_content, in cursor.fetchall():
-    documents.append(search_content)
-
-stoplist = set('for a of the and to in'.split())
-texts = [[word for word in document.lower().split() if word not in stoplist]
-            for document in documents]
-all_tokens = sum(texts, [])
-tokens_once = set(word for word in set(all_tokens) if all_tokens.count(word) == 1)
-texts = [[word for word in text if word not in tokens_once]
-            for text in texts]
-#print texts
-dictionary = corpora.Dictionary(texts)
-#print dictionary.token2id
-new_doc = "Human computer interaction"
-corpus = [np.array(dictionary.doc2bow(text)) for text in texts]
-n_topics = 3
-lda = LDA(n_topics, 100)
-docs_w = [[1,2],
-          [1,2],
-          [3,4],
-          [3,4],
-          [0],
-          [0]]
-docs_c = [[2,1],
-          [4,1],
-          [3,1],
-          [4,2],
-          [5],
-          [4]]
-phi, theta = lda.fit(corpus)
-for k in range(n_topics):
-    print "topic:", k
-    indexes = np.argsort(phi[k])
-    for word in indexes[::-1][:10]:
-        print dictionary[word]
-    print ""
+    
+if __name__ == "__main__":
+    import MySQLdb
+    np.random.seed(12345)
+    connection = MySQLdb.connect(db="similar_words",user="root",passwd="password")
+    connection.set_character_set('utf8')
+    cursor = connection.cursor()
+    cursor.execute("SELECT search_content FROM documents ORDER BY id LIMIT 10000")
+    documents = []
+    for search_content, in cursor.fetchall():
+        documents.append(search_content)
+        
+    stoplist = set('for a of the and to in'.split())
+    texts = [[word for word in document.lower().split() if word not in stoplist]
+                for document in documents]
+    all_tokens = sum(texts, [])
+    tokens_once = set(word for word in set(all_tokens) if all_tokens.count(word) == 1)
+    texts = [[word for word in text if word not in tokens_once]
+                for text in texts]
+    dictionary = corpora.Dictionary(texts)
+    corpus = [dictionary.doc2bow(text) for text in texts]
+    n_topics = 20
+    lda = LDA(n_topics, 1500)
+    phi, theta = lda.fit(corpus)
+    for k in range(n_topics):
+        print("topic:", k)
+        indexes = np.argsort(phi[k])
+        for word in indexes[::-1][:30]:
+            print(dictionary[word])
+        print("")
 
 

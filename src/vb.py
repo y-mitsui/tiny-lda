@@ -89,8 +89,8 @@ if __name__ == "__main__":
                 for text in texts]
     dictionary = corpora.Dictionary(texts)
     corpus = [dictionary.doc2bow(text) for text in texts]
-    n_topics = 15
-    lda = LDA(n_topics, 100)
+    n_topics = 20
+    lda = LDA(n_topics, 300)
     phi, theta = lda.fit(corpus)
     for k in range(n_topics):
         print("topic:", k)
