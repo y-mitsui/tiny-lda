@@ -70,16 +70,30 @@ class LDA:
         return phi, theta
     
 if __name__ == "__main__":
-    import MySQLdb
-    np.random.seed(12345)
-    connection = MySQLdb.connect(db="similar_words",user="root",passwd="password")
-    connection.set_character_set('utf8')
-    cursor = connection.cursor()
-    cursor.execute("SELECT search_content FROM documents ORDER BY id LIMIT 1000")
+    from sklearn.datasets import fetch_20newsgroups
+    from pprint import pprint
+    
+    newsgroups_train = fetch_20newsgroups(subset='train')
+    
+    skip_headers = ["Nntp-Posting-Host:", "From:", "Organization:", "Lines:"]
+    delete_header_names = ["Subject: ", "Summary: ", "Keywords: "]
     documents = []
-    for search_content, in cursor.fetchall():
-        documents.append(search_content)
-        
+    for message in newsgroups_train.data[:1000]:
+        content = ""
+        for line in message.split("\n"):
+            is_skip = False
+            for header in skip_headers:
+                if line[:len(header)].lower() == header.lower():
+                    is_skip = True
+                    break
+            if is_skip:
+                continue
+            content += line + "\n"
+        content = content.strip()
+        for header in delete_header_names:
+            content = content.replace(header, "")
+        documents.append(content)
+            
     stoplist = set('for a of the and to in'.split())
     texts = [[word for word in document.lower().split() if word not in stoplist]
                 for document in documents]
@@ -90,7 +104,7 @@ if __name__ == "__main__":
     dictionary = corpora.Dictionary(texts)
     corpus = [dictionary.doc2bow(text) for text in texts]
     n_topics = 20
-    lda = LDA(n_topics, 300)
+    lda = LDA(n_topics, 5000)
     phi, theta = lda.fit(corpus)
     for k in range(n_topics):
         print("topic:", k)

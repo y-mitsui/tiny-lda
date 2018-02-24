@@ -7,7 +7,7 @@ import sys
 from numpy.random.mtrand import beta
 
 class LDA:
-    def __init__(self, n_topic, n_iter, inner_iter=5, alpha=0.1, beta=0.01, step_size=0.1):
+    def __init__(self, n_topic, n_iter, inner_iter=2, alpha=0.1, beta=0.01, step_size=0.01):
         self.n_topic = n_topic
         self.n_iter = n_iter
         self.alpha = alpha
@@ -38,8 +38,8 @@ class LDA:
         n_word_types = max_index + 1
         
         theta = np.random.uniform(size=(n_documents, self.n_topic))
-        old_theta = np.copy(theta)
         phi = np.random.uniform(size=(self.n_topic, n_word_types))
+        old_phi = np.copy(phi)
             
         for n in range(self.n_iter):
             d = np.random.randint(0, n_documents)
@@ -50,7 +50,6 @@ class LDA:
             
             theta[d, :] = float(n_word_in_doc) / self.n_topic + self.alpha
             for n2 in range(self.inner_iter):
-                nkv = np.zeros((self.n_topic, n_word_types))
                 ndk = np.zeros(self.n_topic)
                 sum_theta_d = sum(theta[d])
                 prob_d = digamma(theta[d]) - digamma(sum_theta_d)
@@ -61,14 +60,28 @@ class LDA:
                     latent_z /= np.sum(latent_z)
                     
                     ndk += latent_z * word_counts[d][w]
-                    nkv[:, word_no] += latent_z * word_counts[d][w]
+                    
                 theta[d] = ndk + self.alpha
-                
+            
+            ndk = np.zeros(self.n_topic)
+            sum_theta_d = sum(theta[d])
+            prob_d = digamma(theta[d]) - digamma(sum_theta_d)   
+            nkv = np.zeros((self.n_topic, n_word_types))
+            for w in range(n_word_in_doc):
+                word_no = word_indexes[d][w]
+                prob_w = digamma(phi[:, word_no]) - digamma(sum_phi)
+                latent_z = np.exp(prob_w + prob_d)
+                latent_z /= np.sum(latent_z)
+                nkv[:, word_no] += latent_z * word_counts[d][w]
+                ndk += latent_z * word_counts[d][w]
+            theta[d] = ndk + self.alpha
+            
             difference = (n_documents) * nkv + self.beta - phi
             phi += self.step_size *  difference
             
-            print(n, np.max(theta - old_theta))
-            old_theta = np.copy(theta)
+            if (n + 1) % 20 == 0:
+                print("convergence:", n + 1, np.sum(np.abs(phi - old_phi)) / 20)
+            old_phi = np.copy(phi)
         
         for k in range(self.n_topic):
             phi[k] = phi[k] / np.sum(phi[k])
@@ -79,17 +92,35 @@ class LDA:
         return phi, theta
     
 if __name__ == "__main__":
-    import MySQLdb
-    np.random.seed(12345)
-    connection = MySQLdb.connect(db="similar_words",user="root",passwd="password")
-    connection.set_character_set('utf8')
-    cursor = connection.cursor()
-    cursor.execute("SELECT search_content FROM documents ORDER BY id LIMIT 10000")
+    from sklearn.datasets import fetch_20newsgroups
+    from pprint import pprint
+    
+    newsgroups_train = fetch_20newsgroups(subset='train')
+    
+    skip_headers = ["Nntp-Posting-Host:", "From:", "Organization:", "Lines:"]
+    delete_header_names = ["Subject: ", "Summary: ", "Keywords: "]
     documents = []
-    for search_content, in cursor.fetchall():
-        documents.append(search_content)
+    for message in newsgroups_train.data[:1000]:
+        content = ""
+        for line in message.split("\n"):
+            is_skip = False
+            for header in skip_headers:
+                if line[:len(header)].lower() == header.lower():
+                    is_skip = True
+                    break
+            if is_skip:
+                continue
+            content += line + "\n"
+        content = content.strip()
+        for header in delete_header_names:
+            content = content.replace(header, "")
+        documents.append(content)
+    
+    stoplist = {}
+    with open("stop_words.txt", "r") as fh:
+        for line in fh:
+            stoplist[line.strip()] = True
         
-    stoplist = set('for a of the and to in'.split())
     texts = [[word for word in document.lower().split() if word not in stoplist]
                 for document in documents]
     all_tokens = sum(texts, [])
@@ -99,7 +130,7 @@ if __name__ == "__main__":
     dictionary = corpora.Dictionary(texts)
     corpus = [dictionary.doc2bow(text) for text in texts]
     n_topics = 20
-    lda = LDA(n_topics, 1500)
+    lda = LDA(n_topics, 10000)
     phi, theta = lda.fit(corpus)
     for k in range(n_topics):
         print("topic:", k)
