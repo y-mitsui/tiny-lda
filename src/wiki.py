@@ -1,14 +1,16 @@
 import MySQLdb
-from svb import LDA
+from vb import LDA
 import numpy as np
 from gensim import corpora, models, similarities
 import re
+import nltk
+from lda_wrap import LDAWrap
 
 np.random.seed(12345)
 connection = MySQLdb.connect(db="nlp_dataset",user="root",passwd="password")
 connection.set_character_set('utf8')
 cursor = connection.cursor()
-cursor.execute("SELECT content FROM wikipedia_en ORDER BY id LIMIT 50000")
+cursor.execute("SELECT content FROM wikipedia_en ORDER BY id LIMIT 100")
 documents = []
 print "reading"
 for search_content, in cursor.fetchall():
@@ -54,6 +56,15 @@ for document in documents:
             word_counter[word] += 1
     texts.append(words)
 
+new_texts = []
+for text in texts:
+    row = []
+    for word, tag in nltk.pos_tag(text):
+        if tag in ['NN', 'NNS', 'NP', 'NPS']:
+            row.append(word)
+    new_texts.append(row)
+texts = new_texts
+
 print "word"
 texts = [[word for word in text if word_counter[word] > 10]
             for text in texts]
@@ -69,9 +80,9 @@ else:
     
 print "bow"
 corpus = [dictionary.doc2bow(text) for text in texts]
-n_topics = 100
-lda = LDA(n_topics, 5000, step_size=0.005)
-phi, theta = lda.fit(corpus)
+n_topics = 10
+lda = LDA(n_topics, 100)
+phi, theta = lda.fit_transform(corpus)
 for k in range(n_topics):
     print("topic:", k)
     indexes = np.argsort(phi[k])

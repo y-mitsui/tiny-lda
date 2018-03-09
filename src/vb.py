@@ -4,15 +4,33 @@ from scipy.special import digamma
 import numpy as np
 from gensim import corpora, models, similarities
 import sys
+import time
 
 class LDA:
-    def __init__(self, n_topic, n_iter, alpha=0.1, beta=0.01):
+    def __init__(self, n_topic, n_iter, alpha=0.2, beta=0.1):
         self.n_topic = n_topic
         self.n_iter = n_iter
         self.alpha = alpha
         self.beta = beta
-        
-    def fit(self, curpus):
+    
+    def lhood(self, theta, phi, word_indexes, word_counts):
+        phi_hat = np.zeros(phi.shape)
+        theta_hat = np.zeros(theta.shape)
+        n_documents = len(word_indexes)
+        for k in range(self.n_topic):
+            phi_hat[k] = phi[k] / np.sum(phi[k])
+        for d in range(n_documents):
+            theta_hat[d] = theta[d] / np.sum(theta[d])
+            
+        ret = 0.
+        for d in range(n_documents):
+            for w in range(len(word_indexes[d])):
+                word_no = word_indexes[d][w]
+                prob = np.dot(theta_hat[d], phi_hat[:, word_no])
+                ret += np.log(prob) * word_counts[d][w]
+        return ret
+    
+    def fit_transform(self, curpus):
         word_indexes = []
         word_counts = []
         for row_curpus in curpus:
@@ -37,29 +55,40 @@ class LDA:
         theta = np.random.uniform(size=(n_documents, self.n_topic))
         old_theta = np.copy(theta)
         phi = np.random.uniform(size=(self.n_topic, n_word_types))
-            
+        t1 = time.time()
+        old_loglikely = False
         for n in range(self.n_iter):
-            sum_phi = []
-            for k in range(self.n_topic):
-                sum_phi.append(sum(phi[k]))
-            ndk = theta
-            nkv = np.zeros((self.n_topic, n_word_types))
+            sum_phi = np.sum(phi, 1)
+            prob_w = digamma(phi) - digamma(sum_phi).reshape(-1, 1)
+            
+            ndk = np.ones((n_documents, self.n_topic)) * self.alpha
+            nkv = np.ones((self.n_topic, n_word_types)) * self.beta
             for d in range(n_documents):
                 sum_theta_d = sum(theta[d])
                 prob_d = digamma(theta[d]) - digamma(sum_theta_d)
-                ndk[d, :] = 0.
                 for w in range(len(word_indexes[d])):
                     word_no = word_indexes[d][w]
-                    prob_w = digamma(phi[:, word_no]) - digamma(sum_phi)
-                    latent_z = np.exp(prob_w + prob_d)
+                    latent_z = np.exp(prob_w[:, word_no] + prob_d) * word_counts[d][w]
                     latent_z /= np.sum(latent_z)
                     
                     ndk[d, :] += latent_z * word_counts[d][w]
                     nkv[:, word_no] += latent_z * word_counts[d][w]
-            theta = ndk + self.alpha
-            phi = nkv + self.beta
-            print(n, np.max(theta - old_theta))
-            old_theta = np.copy(theta)
+            theta = ndk.copy()
+            phi = nkv.copy() 
+            if (n + 1) % 1 == 0:
+                tim = time.time() - t1
+                t1 = time.time()
+                loglikely = self.lhood(theta, phi, word_indexes, word_counts)
+                if old_loglikely != False:
+                    convergence = (old_loglikely - loglikely) /  old_loglikely
+                else:
+                    convergence = float('inf')
+                print("[%d] log likelyhood:%.3f(%.5f) %.1fsec"%(n + 1, loglikely , convergence, tim))
+                
+                #if old_loglikely != False and convergence < 1e-5:
+                #   break
+               
+                old_loglikely = loglikely
         
         for k in range(self.n_topic):
             phi[k] = phi[k] / np.sum(phi[k])

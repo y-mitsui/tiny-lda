@@ -5,6 +5,7 @@ import numpy as np
 from gensim import corpora, models, similarities
 import sys
 from numpy.random.mtrand import beta
+import time
 
 class LDA:
     def __init__(self, n_topic, n_iter, inner_iter=2, alpha=0.1, beta=0.01, batch_size=10, step_size=0.01):
@@ -57,15 +58,17 @@ class LDA:
         
         theta = np.random.uniform(size=(n_documents, self.n_topic))
         phi = np.random.uniform(size=(self.n_topic, n_word_types))
-            
+        t1 = time.time()
+        
         for n in range(self.n_iter):
             random_documents = np.random.randint(0, n_documents, self.batch_size)
             nkv = np.zeros((self.n_topic, n_word_types))
+            
+            sum_phi = np.sum(phi, 1)
+            prob_w = digamma(phi) - digamma(sum_phi).reshape(-1, 1)
+                    
             for d in random_documents:
                 n_word_in_doc = len(word_indexes[d])
-                sum_phi = []
-                for k in range(self.n_topic):
-                    sum_phi.append(sum(phi[k]))
                 
                 theta[d, :] = float(n_word_in_doc) / self.n_topic + self.alpha
                 for n2 in range(self.inner_iter):
@@ -74,8 +77,7 @@ class LDA:
                     prob_d = digamma(theta[d]) - digamma(sum_theta_d)
                     for w in range(n_word_in_doc):
                         word_no = word_indexes[d][w]
-                        prob_w = digamma(phi[:, word_no]) - digamma(sum_phi)
-                        latent_z = np.exp(prob_w + prob_d)
+                        latent_z = np.exp(prob_w[:, word_no] + prob_d)
                         latent_z /= np.sum(latent_z)
                         
                         ndk += latent_z * word_counts[d][w]
@@ -88,8 +90,7 @@ class LDA:
                 
                 for w in range(n_word_in_doc):
                     word_no = word_indexes[d][w]
-                    prob_w = digamma(phi[:, word_no]) - digamma(sum_phi)
-                    latent_z = np.exp(prob_w + prob_d)
+                    latent_z = np.exp(prob_w[:, word_no] + prob_d)
                     latent_z /= np.sum(latent_z)
                     nkv[:, word_no] += latent_z * word_counts[d][w]
                     ndk += latent_z * word_counts[d][w]
@@ -98,10 +99,11 @@ class LDA:
             difference = (n_documents / self.batch_size) * nkv + self.beta - phi
             phi += self.step_size *  difference
             
-            if (n + 1) % 10 == 0:
-                print("[%d] log likelyhood:%.3f"%(n + 1,
-                        self.lhood(theta, phi, word_indexes, word_counts)))
-                        
+            if (n + 1) % 20 == 0:
+                tim = time.time() - t1
+                t1 = time.time()
+                loglikely = self.lhood(theta, phi, word_indexes, word_counts)
+                print("[%d] log likelyhood:%.3f %.1fsec"%(n + 1, loglikely , tim))
         
         for k in range(self.n_topic):
             phi[k] = phi[k] / np.sum(phi[k])
