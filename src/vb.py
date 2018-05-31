@@ -12,7 +12,7 @@ class LDA:
         self.n_iter = n_iter
         self.alpha = alpha
         self.beta = beta
-    
+
     def lhood(self, theta, phi, curpus):
         phi_hat = np.zeros(phi.shape)
         theta_hat = np.zeros(theta.shape)
@@ -85,81 +85,6 @@ class LDA:
             
         return beta, alpha
         
-    def fit_transform2(self, curpus):
-        word_indexes = []
-        word_counts = []
-        for row_curpus in curpus:
-            row_indexes = []
-            row_counts = []
-            for w_i, w_c in row_curpus:
-                row_indexes.append(w_i)
-                row_counts.append(w_c)
-            word_indexes.append(row_indexes)
-            word_counts.append(row_counts)
-        
-        n_documents = len(word_indexes)    
-        
-        max_index = 0
-        for d in range(n_documents):
-            document_max = np.max(word_indexes[d])
-            if max_index < document_max:
-                max_index = document_max
-                
-        n_word_types = max_index + 1
-        
-        theta = np.random.rand(n_documents, self.n_topic) + self.alpha
-        phi = np.random.rand(self.n_topic, n_word_types) + self.beta
-        t1 = time.time()
-        old_loglikely = False
-        old_theta = theta.copy()
-        for n in range(self.n_iter):
-            dig_alpha = digamma(theta) - digamma(theta.sum(axis = 1, keepdims = True))
-            dig_beta = digamma(phi) - digamma(phi.sum(axis = 1, keepdims = True))
-            alpha_new = np.ones((n_documents, self.n_topic)) * self.alpha
-            beta_new = np.ones((self.n_topic, n_word_types)) * self.beta
-            for (d, row_corpus) in enumerate(curpus):
-                q = np.zeros((n_word_types, self.n_topic))
-                v = np.array(map(lambda x: x[0], row_corpus))
-                count = np.array(map(lambda x: x[1], row_corpus))
-                q[v, :] = (np.exp(dig_alpha[d, :].reshape(-1, 1) + dig_beta[:, v]) * count).T
-                q[v, :] /= q[v, :].sum()
-                alpha_new[d, :] += count.dot(q[v])
-                beta_new[:, v] += count * q[v].T
-                    
-                """
-                word_no = word_indexes[d][w]
-                latent_z = np.exp(prob_w[:, word_no] + prob_d)
-                latent_z /= np.sum(latent_z)
-                
-                ndk[d, :] += latent_z * word_counts[d][w]
-                nkv[:, word_no] += latent_z * word_counts[d][w]
-                """
-                    
-            theta = alpha_new.copy()
-            phi = beta_new.copy()
-            if (n + 1) % 10 == 0:
-                tim = time.time() - t1
-                t1 = time.time()
-                loglikely = self.lhood(theta, phi, curpus)
-                if old_loglikely != False:
-                    convergence = (old_loglikely - loglikely) /  old_loglikely
-                else:
-                    convergence = float('inf')
-                print("[%d] log likelyhood:%.3f(%.5f) %.1fsec"%(n + 1, loglikely , convergence, tim))
-                
-                #if old_loglikely != False and convergence < 1e-5:
-                #   break
-                print("convergence", np.max(np.abs(old_theta - theta)))
-                old_theta = theta.copy()
-                old_loglikely = loglikely
-        
-        for k in range(self.n_topic):
-            phi[k] = phi[k] / np.sum(phi[k])
-
-        for d in range(n_documents):
-            theta[d] = theta[d] / np.sum(theta[d])
-            
-        return phi, theta
     
 if __name__ == "__main__":
     from sklearn.datasets import fetch_20newsgroups
